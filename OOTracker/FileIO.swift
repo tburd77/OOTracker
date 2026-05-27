@@ -24,4 +24,5 @@ func createAppFolders() {
             print("⚠️ Could not create folder \(folderName): \(error)")
         }
     }
+    
 }
