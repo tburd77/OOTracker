@@ -45,7 +45,7 @@ class FellowUsers_TableViewController: UITableViewController {
         print("👥 fellowUsers on appear: \(fellowUsers.map { $0.peerID.displayName })")
         tableView.reloadData()
     }
-    
+     
     // MARK: - UI Setup
 
     private func setupUI() {
