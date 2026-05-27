@@ -18,6 +18,7 @@ class FellowUsers_TableViewController: UITableViewController {
     let session = MultipeerSession()
     private var fellowUsers: [Fellow_User] = []
 
+    
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
