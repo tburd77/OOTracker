@@ -35,6 +35,7 @@ class FellowUsers_TableViewController: UITableViewController {
         if isMovingFromParent || isBeingDismissed {
             session.stop()
         }
+        
     }
 
     override func viewWillAppear(_ animated: Bool) {
