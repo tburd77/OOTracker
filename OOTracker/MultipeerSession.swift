@@ -22,6 +22,7 @@ struct Fellow_User: Equatable {
         case discovered
         case connecting
         case connected
+        case busy
     }
 
     static func == (lhs: Fellow_User, rhs: Fellow_User) -> Bool {
@@ -53,6 +54,7 @@ protocol MultipeerSessionDelegate: AnyObject {
     func transferFailed(fileName: String, from peer: MCPeerID, error: Error?)
     func didReceiveConfirmation(fileName: String, from peer: MCPeerID)
     func peerDidDisconnect(_ peer: MCPeerID)
+    func didReceiveInvitation(from peer: MCPeerID, handler: @escaping (Bool) -> Void)
 }
 
 // MARK: - MultipeerSession
@@ -167,6 +169,20 @@ class MultipeerSession: NSObject {
         session.connectedPeers.contains(peer)
     }
 
+    func setBusy(_ busy: Bool) {
+        stopAdvertising()
+        let info: [String: String] = busy
+            ? ["app": "otracker", "busy": "1"]
+            : ["app": "otracker"]
+        advertiser = MCNearbyServiceAdvertiser(
+            peer: localPeer,
+            discoveryInfo: info,
+            serviceType: MultipeerSession.serviceType
+        )
+        advertiser?.delegate = self
+        advertiser?.startAdvertisingPeer()
+    }
+    
     // MARK: - Transfer
 
     func sendMapAndMatchingDataIfAvailable(_ item: TransferItem, to peer: MCPeerID) {
@@ -515,9 +531,19 @@ extension MultipeerSession: MCNearbyServiceAdvertiserDelegate {
                     didReceiveInvitationFromPeer peerID: MCPeerID,
                     withContext context: Data?,
                     invitationHandler: @escaping (Bool, MCSession?) -> Void) {
+        DispatchQueue.main.async {
+            self.delegate?.didReceiveInvitation(from: peerID) { accepted in
+                invitationHandler(accepted, accepted ? self.session : nil)
+            }
+        }
+    }
+  /*  func advertiser(_ advertiser: MCNearbyServiceAdvertiser,
+                    didReceiveInvitationFromPeer peerID: MCPeerID,
+                    withContext context: Data?,
+                    invitationHandler: @escaping (Bool, MCSession?) -> Void) {
         // Auto-accept connection — transfer approval is handled per-file
         invitationHandler(true, session)
-    }
+    }*/
 }
 
 // MARK: - MCNearbyServiceBrowserDelegate
@@ -527,8 +553,9 @@ extension MultipeerSession: MCNearbyServiceBrowserDelegate {
     func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID,
                  withDiscoveryInfo info: [String: String]?) {
         guard info?["app"] == "otracker" else { return }
+        let busy = info?["busy"] == "1"
         DispatchQueue.main.async {
-            self.updateUser(peerID, state: .discovered)
+            self.updateUser(peerID, state: busy ? .busy : .discovered)
         }
     }
 

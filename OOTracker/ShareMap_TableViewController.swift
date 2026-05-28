@@ -46,10 +46,19 @@ class ShareMap_TableViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         session.delegate = self
+        session.setBusy(true)
         loadLocalFiles()
         setupUI()
     }
+    
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        session.setBusy(false)
+    }
 
+    func didReceiveInvitation(from peer: MCPeerID, handler: @escaping (Bool) -> Void) {
+        handler(false)  // decline while already in a session
+    }
     // MARK: - UI Setup
 
     private func setupUI() {
@@ -104,7 +113,7 @@ class ShareMap_TableViewController: UITableViewController {
 
         tableView.reloadData()
     }
-   // func peerDidDisconnect(_ peer: MCPeerID) {}
+  
     func peerDidDisconnect(_ peer: MCPeerID) {
         // Only pop if we're connected to this specific peer
         guard peer == self.peer else { return }
@@ -133,7 +142,6 @@ class ShareMap_TableViewController: UITableViewController {
 
     override func tableView(_ tableView: UITableView,
                             numberOfRowsInSection section: Int) -> Int {
-      //  switch Section(rawValue: section)! {
         guard let section = Section(rawValue: section) else { return 0 }
         switch section {
             case .local:    return localFiles.isEmpty ? 1 : localFiles.count
@@ -153,7 +161,6 @@ class ShareMap_TableViewController: UITableViewController {
         
         guard let section = Section(rawValue: section) else { return nil }
         switch section {
-        //switch Section(rawValue: section)! {
             case .local:    return "MY FILES"
             case .confirmed:
                 return confirmedFiles.isEmpty ? nil : "SENT & CONFIRMED"
@@ -166,67 +173,65 @@ class ShareMap_TableViewController: UITableViewController {
         
         guard let section = Section(rawValue: indexPath.section) else { return UITableViewCell() }
         switch section {
-       // switch Section(rawValue: indexPath.section)! {
-            
-        case .local:
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: MapFileCell.id, for: indexPath) as! MapFileCell
-            if localFiles.isEmpty {
-                cell.configureEmpty(message: "No maps or data files found.")
-            } else {
-                let item = localFiles[indexPath.row]
-                let progress = activeTransfers[item.name]
-                let hasOGT = matchingOGTExists(for: item)
-                cell.configure(with: item, progress: progress, hasOGT: hasOGT)
-            }
-            return cell
-        case .confirmed:
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: MapFileCell.id, for: indexPath) as! MapFileCell
-            let item = confirmedFiles[indexPath.row]
-            cell.configure(with: item, progress: nil, hasOGT: item.hasMatchingOGT)
-            // Override the chevron to show a checkmark instead of upload arrow
-            cell.setConfirmed()
-            return cell
-        case .received:
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: ReceivedFileCell.id,
-                for: indexPath
-            ) as! ReceivedFileCell
+            case .local:
+                let cell = tableView.dequeueReusableCell(
+                    withIdentifier: MapFileCell.id, for: indexPath) as! MapFileCell
+                if localFiles.isEmpty {
+                    cell.configureEmpty(message: "No maps or data files found.")
+                } else {
+                    let item = localFiles[indexPath.row]
+                    let progress = activeTransfers[item.name]
+                    let hasOGT = matchingOGTExists(for: item)
+                    cell.configure(with: item, progress: progress, hasOGT: hasOGT)
+                }
+                return cell
+            case .confirmed:
+                let cell = tableView.dequeueReusableCell(
+                    withIdentifier: MapFileCell.id, for: indexPath) as! MapFileCell
+                let item = confirmedFiles[indexPath.row]
+                cell.configure(with: item, progress: nil, hasOGT: item.hasMatchingOGT)
+                // Override the chevron to show a checkmark instead of upload arrow
+                cell.setConfirmed()
+                return cell
+            case .received:
+                let cell = tableView.dequeueReusableCell(
+                    withIdentifier: ReceivedFileCell.id,
+                    for: indexPath
+                ) as! ReceivedFileCell
 
-            let visibleIncoming = incomingTransferOrder
-                .filter { !$0.lowercased().hasSuffix(".ogt") }
-                .compactMap { key in
-                    incomingTransfers[key].map { (key: key, value: $0) }
+                let visibleIncoming = incomingTransferOrder
+                    .filter { !$0.lowercased().hasSuffix(".ogt") }
+                    .compactMap { key in
+                        incomingTransfers[key].map { (key: key, value: $0) }
+                    }
+
+                if visibleIncoming.isEmpty && receivedFiles.isEmpty {
+                    cell.configureEmpty()
+                    return cell
                 }
 
-            if visibleIncoming.isEmpty && receivedFiles.isEmpty {
-                cell.configureEmpty()
+                if indexPath.row < visibleIncoming.count {
+                    let entry = visibleIncoming[indexPath.row]
+                    cell.configureReceiving(
+                        fileName: entry.key,
+                        fileType: entry.value.type,
+                        from: entry.value.from,
+                        progress: entry.value.progress
+                    )
+                    return cell
+                }
+
+                let receivedIndex = indexPath.row - visibleIncoming.count
+                let displayItems = receivedDisplayItems()
+
+                guard receivedIndex >= 0, receivedIndex < displayItems.count else {
+                    cell.configureEmpty()
+                    return cell
+                }
+
+                cell.configure(with: displayItems[receivedIndex])
                 return cell
             }
-
-            if indexPath.row < visibleIncoming.count {
-                let entry = visibleIncoming[indexPath.row]
-                cell.configureReceiving(
-                    fileName: entry.key,
-                    fileType: entry.value.type,
-                    from: entry.value.from,
-                    progress: entry.value.progress
-                )
-                return cell
-            }
-
-            let receivedIndex = indexPath.row - visibleIncoming.count
-            let displayItems = receivedDisplayItems()
-
-            guard receivedIndex >= 0, receivedIndex < displayItems.count else {
-                cell.configureEmpty()
-                return cell
-            }
-
-            cell.configure(with: displayItems[receivedIndex])
-            return cell
-        }
     }
 
     // MARK: - Table View Delegate
@@ -239,7 +244,6 @@ class ShareMap_TableViewController: UITableViewController {
 
         let item = localFiles[indexPath.row]
         session.sendMapAndMatchingDataIfAvailable(item, to: peer)
-       // confirmSend(item: item)
     }
 
     // MARK: - Swipe to Save
@@ -250,7 +254,11 @@ class ShareMap_TableViewController: UITableViewController {
 
         guard Section(rawValue: indexPath.section) == .received else { return nil }
 
-        let incomingCount = incomingTransfers.count
+        let incomingCount = incomingTransferOrder
+            .filter { !$0.lowercased().hasSuffix(".ogt") }
+            .filter { incomingTransfers[$0] != nil }
+            .count
+        
         guard indexPath.row >= incomingCount else { return nil }
 
         let displayItems = receivedDisplayItems()
@@ -275,132 +283,63 @@ class ShareMap_TableViewController: UITableViewController {
     // MARK: - Save Received File
     
     private func saveReceivedMapGroup(_ mapItem: TransferItem) {
-        let docs = FileManager.default.urls(
-            for: .documentDirectory,
-            in: .userDomainMask
-        )[0]
-
-        let mapsFolder = docs.appendingPathComponent("OG_MapsFolder")
-        let dataFolder = docs.appendingPathComponent("OG_DataFolder")
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let mapDest = docs.appendingPathComponent("OG_MapsFolder").appendingPathComponent(mapItem.name)
 
         let mapBase = baseName(mapItem.name)
-        let mapDest = mapsFolder.appendingPathComponent(mapItem.name)
-
-        let dataItem = receivedFiles.first {
-            $0.type == .data && baseName($0.name) == mapBase
-        }
-
+        let dataItem = receivedFiles.first { $0.type == .data && baseName($0.name) == mapBase }
         let dataDest = dataItem.map {
-            dataFolder.appendingPathComponent($0.name)
+            docs.appendingPathComponent("OG_DataFolder").appendingPathComponent($0.name)
         }
 
         if FileManager.default.fileExists(atPath: mapDest.path) ||
             (dataDest != nil && FileManager.default.fileExists(atPath: dataDest!.path)) {
 
-            confirmOverwriteMapGroup(
-                mapItem: mapItem,
-                dataItem: dataItem,
-                mapDest: mapDest,
-                dataDest: dataDest
+            let alert = UIAlertController(
+                title: "File Exists",
+                message: "\(mapItem.name) already exists. Replace it and its DATA file?",
+                preferredStyle: .alert
             )
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            alert.addAction(UIAlertAction(title: "Replace", style: .destructive) { [weak self] _ in
+                guard let self else { return }
+                do {
+                    if FileManager.default.fileExists(atPath: mapDest.path) {
+                        try FileManager.default.removeItem(at: mapDest)
+                    }
+                    if let dataDest, FileManager.default.fileExists(atPath: dataDest.path) {
+                        try FileManager.default.removeItem(at: dataDest)
+                    }
+                    self.cleanupAfterSave(mapItem: mapItem, dataItem: dataItem)
+                } catch {
+                    self.showError("Could not replace \(mapItem.name): \(error.localizedDescription)")
+                }
+            })
+            present(alert, animated: true)
             return
         }
 
-        copyReceivedMapGroup(
-            mapItem: mapItem,
-            dataItem: dataItem,
-            mapDest: mapDest,
-            dataDest: dataDest
-        )
+        cleanupAfterSave(mapItem: mapItem, dataItem: dataItem)
     }
 
-    private func confirmOverwriteMapGroup(mapItem: TransferItem,
-                                          dataItem: TransferItem?,
-                                          mapDest: URL,
-                                          dataDest: URL?) {
-        let alert = UIAlertController(
-            title: "File Exists",
-            message: "\(mapItem.name) already exists. Replace it and its DATA file?",
-            preferredStyle: .alert
-        )
+    private func cleanupAfterSave(mapItem: TransferItem, dataItem: TransferItem?) {
+        let mapBase = baseName(mapItem.name)
+        receivedFiles.removeAll { baseName($0.name) == mapBase }
 
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-
-        alert.addAction(UIAlertAction(title: "Replace",
-                                      style: .destructive) { [weak self] _ in
-            self?.copyReceivedMapGroup(
-                mapItem: mapItem,
-                dataItem: dataItem,
-                mapDest: mapDest,
-                dataDest: dataDest
-            )
-        })
-
-        present(alert, animated: true)
-    }
-
-    private func copyReceivedMapGroup(mapItem: TransferItem,
-                                      dataItem: TransferItem?,
-                                      mapDest: URL,
-                                      dataDest: URL?) {
-        do {
-            try FileManager.default.createDirectory(
-                at: mapDest.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-
-            if let dataDest {
-                try FileManager.default.createDirectory(
-                    at: dataDest.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-            }
-
-            if FileManager.default.fileExists(atPath: mapDest.path) {
-                try FileManager.default.removeItem(at: mapDest)
-            }
-
-            try FileManager.default.copyItem(at: mapItem.url, to: mapDest)
-
-            if let dataItem, let dataDest {
-                if FileManager.default.fileExists(atPath: dataDest.path) {
-                    try FileManager.default.removeItem(at: dataDest)
-                }
-
-                try FileManager.default.copyItem(at: dataItem.url, to: dataDest)
-            }
-
-            let mapBase = baseName(mapItem.name)
-
-            receivedFiles.removeAll {
-                baseName($0.name) == mapBase
-            }
-
-           // incomingTransfers.removeAll()
-          //  incomingTransferOrder.removeAll()  // ← add here
-           // activeTransfers.removeAll()
-            // Only remove the saved map and its matching .ogt, leave everything else
-            incomingTransfers.removeValue(forKey: mapItem.name)
-            incomingTransferOrder.removeAll { $0 == mapItem.name }
-
-            if let dataItem {
-                incomingTransfers.removeValue(forKey: dataItem.name)
-                incomingTransferOrder.removeAll { $0 == dataItem.name }
-            }
-
-            // Only remove from activeTransfers if outgoing
-            activeTransfers.removeValue(forKey: mapItem.name)
-            if let dataItem {
-                activeTransfers.removeValue(forKey: dataItem.name)
-            }
-            
-            tableView.reloadData()
-            showBanner(name: mapItem.name)
-            loadLocalFiles()
-
-        } catch {
-            showError("Could not save \(mapItem.name): \(error.localizedDescription)")
+        incomingTransfers.removeValue(forKey: mapItem.name)
+        incomingTransferOrder.removeAll { $0 == mapItem.name }
+        if let dataItem {
+            incomingTransfers.removeValue(forKey: dataItem.name)
+            incomingTransferOrder.removeAll { $0 == dataItem.name }
         }
+        activeTransfers.removeValue(forKey: mapItem.name)
+        if let dataItem {
+            activeTransfers.removeValue(forKey: dataItem.name)
+        }
+
+        tableView.reloadData()
+        showBanner(name: mapItem.name)
+        loadLocalFiles()
     }
 
     // MARK: - Helpers
@@ -474,8 +413,12 @@ extension ShareMap_TableViewController: MultipeerSessionDelegate {
                                    fileType: TransferItem.FileType,
                                    from peer: MCPeerID,
                                    handler: @escaping (Bool) -> Void) {
-        guard peer == self.peer else { return }
-
+       // guard peer == self.peer else { return }
+        guard peer == self.peer else {
+                handler(false)
+                return
+            }
+        
         TransferRequestHandler.askToReceive(
             fileName: fileName,
             fileType: fileType,
@@ -637,6 +580,8 @@ extension ShareMap_TableViewController: MultipeerSessionDelegate {
             with: .automatic
         )
     }
+    
+    
 }
 
 // MARK: - MapFileCell

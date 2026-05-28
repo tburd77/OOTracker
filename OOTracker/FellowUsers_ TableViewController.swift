@@ -43,7 +43,6 @@ class FellowUsers_TableViewController: UITableViewController {
         super.viewWillAppear(animated)
         session.delegate = self
         fellowUsers = session.fellowUsers
-        print("👥 fellowUsers on appear: \(fellowUsers.map { $0.peerID.displayName })")
         tableView.reloadData()
     }
      
@@ -128,6 +127,8 @@ class FellowUsers_TableViewController: UITableViewController {
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
 
             present(alert, animated: true)
+        case .busy:
+            return
         }
     }
 
@@ -157,6 +158,21 @@ class FellowUsers_TableViewController: UITableViewController {
     private func openShareMaps(for user: Fellow_User) {
         let vc = ShareMap_TableViewController(session: session, peer: user.peerID)
         navigationController?.pushViewController(vc, animated: true)
+    }
+    
+    func didReceiveInvitation(from peer: MCPeerID, handler: @escaping (Bool) -> Void) {
+        let alert = UIAlertController(
+            title: "Connection Request",
+            message: "\(peer.displayName) wants to connect.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Decline", style: .cancel) { _ in
+            handler(false)
+        })
+        alert.addAction(UIAlertAction(title: "Accept", style: .default) { _ in
+            handler(true)
+        })
+        present(alert, animated: true)
     }
 }
 
@@ -189,10 +205,14 @@ extension FellowUsers_TableViewController: MultipeerSessionDelegate {
 
     func transferProgress(_ progress: Progress, fileName: String, from peer: MCPeerID) {}
 
+ //   func transferComplete(item: TransferItem, from peer: MCPeerID) {
+  //      openShareMaps(for: Fellow_User(peerID: peer, state: .connected))
+  //  }
     func transferComplete(item: TransferItem, from peer: MCPeerID) {
+        guard navigationController?.topViewController is FellowUsers_TableViewController else { return }
         openShareMaps(for: Fellow_User(peerID: peer, state: .connected))
     }
-
+    
     func transferFailed(fileName: String, from peer: MCPeerID, error: Error?) {
         let msg = error?.localizedDescription ?? "Transfer was declined."
         let alert = UIAlertController(title: "Transfer Failed",
@@ -283,21 +303,26 @@ class FellowUserCell: UITableViewCell {
         avatarLabel.text = String(name.prefix(1)).uppercased()
 
         switch user.state {
-        case .discovered:
-            statusLabel.text = "Tap to connect"
-            statusDot.backgroundColor = .systemOrange
-            avatarView.backgroundColor = .systemOrange.withAlphaComponent(0.15)
-            avatarLabel.textColor = .systemOrange
-        case .connecting:
-            statusLabel.text = "Connecting..."
-            statusDot.backgroundColor = .systemYellow
-            avatarView.backgroundColor = .systemYellow.withAlphaComponent(0.15)
-            avatarLabel.textColor = .systemYellow
-        case .connected:
-            statusLabel.text = "Connected — Swipe to Share Map."
-            statusDot.backgroundColor = .systemGreen
-            avatarView.backgroundColor = .systemGreen.withAlphaComponent(0.15)
-            avatarLabel.textColor = .systemGreen
+            case .discovered:
+                statusLabel.text = "Tap to connect"
+                statusDot.backgroundColor = .systemOrange
+                avatarView.backgroundColor = .systemOrange.withAlphaComponent(0.15)
+                avatarLabel.textColor = .systemOrange
+            case .connecting:
+                statusLabel.text = "Connecting..."
+                statusDot.backgroundColor = .systemYellow
+                avatarView.backgroundColor = .systemYellow.withAlphaComponent(0.15)
+                avatarLabel.textColor = .systemYellow
+            case .connected:
+                statusLabel.text = "Connected — Swipe to Share Map."
+                statusDot.backgroundColor = .systemGreen
+                avatarView.backgroundColor = .systemGreen.withAlphaComponent(0.15)
+                avatarLabel.textColor = .systemGreen
+            case .busy:                                              // ← add this
+                statusLabel.text = "Busy"
+                statusDot.backgroundColor = .systemRed
+                avatarView.backgroundColor = .systemRed.withAlphaComponent(0.15)
+                avatarLabel.textColor = .systemRed
         }
     }
 
